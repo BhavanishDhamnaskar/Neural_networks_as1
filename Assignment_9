@@ -1,1 +1,116 @@
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+class BasicNeuralNetwork:
+    def __init__(self, input_dim, hidden_dim, output_dim, reg_strength=0.01, drop_rate=0.5):
+        self.weights_1 = np.random.randn(input_dim, hidden_dim) * 0.01
+        self.bias_1 = np.zeros((1, hidden_dim))
+        self.weights_2 = np.random.randn(hidden_dim, output_dim) * 0.01
+        self.bias_2 = np.zeros((1, output_dim))
+        self.reg_strength = reg_strength
+        self.drop_rate = drop_rate
+        
+    def activation(self, Z):
+        return np.maximum(0, Z)
+    
+    def activation_derivative(self, dA, Z):
+        dZ = np.array(dA, copy=True)
+        dZ[Z <= 0] = 0
+        return dZ
+    
+    def softmax_activation(self, Z):
+        expZ = np.exp(Z - np.max(Z))
+        return expZ / expZ.sum(axis=1, keepdims=True)
+    
+    def loss_function(self, Y, Y_pred):
+        m = Y.shape[0]
+        log_probs = -np.log(Y_pred[range(m), Y])
+        data_loss = np.sum(log_probs) / m
+        reg_loss = (self.reg_strength / (2 * m)) * (np.sum(np.square(self.weights_1)) + np.sum(np.square(self.weights_2)))
+        return data_loss + reg_loss
+    
+    def forward_pass(self, X, is_training=True):
+        Z1 = np.dot(X, self.weights_1) + self.bias_1
+        A1 = self.activation(Z1)
+        if is_training:
+            D1 = np.random.rand(*A1.shape) > self.drop_rate
+            A1 *= D1
+            A1 /= (1 - self.drop_rate)
+        else:
+            D1 = None
+        Z2 = np.dot(A1, self.weights_2) + self.bias_2
+        A2 = self.softmax_activation(Z2)
+        return A2, (Z1, A1, D1, Z2, A2)
+    
+    def backward_pass(self, X, Y, cache):
+        Z1, A1, D1, Z2, A2 = cache
+        m = Y.shape[0]
+        
+        dZ2 = A2
+        dZ2[range(m), Y] -= 1
+        dZ2 /= m
+        
+        dW2 = np.dot(A1.T, dZ2) + (self.reg_strength / m) * self.weights_2
+        db2 = np.sum(dZ2, axis=0, keepdims=True)
+        
+        dA1 = np.dot(dZ2, self.weights_2.T)
+        if D1 is not None:
+            dA1 *= D1
+            dA1 /= (1 - self.drop_rate)
+        dZ1 = self.activation_derivative(dA1, Z1)
+        
+        dW1 = np.dot(X.T, dZ1) + (self.reg_strength / m) * self.weights_1
+        db1 = np.sum(dZ1, axis=0, keepdims=True)
+        
+        return dW1, db1, dW2, db2
+    
+    def update_weights(self, gradients, learning_rate):
+        dW1, db1, dW2, db2 = gradients
+        self.weights_1 -= learning_rate * dW1
+        self.bias_1 -= learning_rate * db1
+        self.weights_2 -= learning_rate * dW2
+        self.bias_2 -= learning_rate * db2
+
+def load_and_process_data(filepath):
+    data = pd.read_csv(filepath)
+    X = data.drop('quality', axis=1).values
+    y = data['quality'].values - 3
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    return X_train_scaled, X_test_scaled, y_train, y_test
+
+def train_model(X_train, y_train, input_size, hidden_size, output_size, learning_rate, regularization, dropout, epochs, batch_size):
+    model = BasicNeuralNetwork(input_size, hidden_size, output_size, regularization, dropout)
+    for epoch in range(epochs):
+        permutation = np.random.permutation(X_train.shape[0])
+        X_train_shuffled = X_train[permutation]
+        y_train_shuffled = y_train[permutation]
+        for i in range(0, X_train.shape[0], batch_size):
+            X_batch = X_train_shuffled[i:i + batch_size]
+            y_batch = y_train_shuffled[i:i + batch_size]
+            A2, cache = model.forward_pass(X_batch, is_training=True)
+            cost = model.loss_function(y_batch, A2)
+            gradients = model.backward_pass(X_batch, y_batch, cache)
+            model.update_weights(gradients, learning_rate)
+        print(f"Epoch {epoch + 1}, Loss: {cost}")
+    print("Training completed.")
+
+# Parameters and hyperparameters
+file_path = '/kaggle/input/wine-quality-dataset/winequality_red.csv'
+X_train, X_test, y_train, y_test = load_and_process_data(file_path)
+input_dim = X_train.shape[1]
+hidden_dim = 64
+output_dim = len(np.unique(y_train))
+learning_rate = 0.01
+regularization_strength = 0.001
+dropout_rate = 0.5
+num_epochs = 10
+batch_size = 32
+
+# Train the neural network
+train_model(X_train, y_train, input_dim, hidden_dim, output_dim, learning_rate, regularization_strength, dropout_rate, num_epochs, batch_size)
 
